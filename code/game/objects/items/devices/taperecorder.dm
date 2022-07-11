@@ -28,6 +28,11 @@
 	var/time_warned = FALSE
 	///Seconds under which to warn that the tape is almost up.
 	var/time_left_warning = 60 SECONDS
+	///Point at which the tape was paused.
+	var/pause_point
+	///Locations in time in which marks were drawn with crayons or pens.
+	var/mark1
+	var/mark2
 	///Sound loop that plays when recording or playing back.
 	var/datum/looping_sound/tape_recorder_hiss/soundloop
 
@@ -94,6 +99,48 @@
 		to_chat(user, span_notice("You insert [I] into [src]."))
 		playsound(src, 'sound/items/taperecorder/taperecorder_close.ogg', 50, FALSE)
 		update_appearance()
+	else if(mytape && !(mytape.storedinfo.len == 0) && (istype(I, /obj/item/toy/crayon) || istype(I, /obj/item/pen)))
+		if (!mark1)
+			mark1 = pause_point
+			to_chat(user, span_notice("You made a mark in the tape at [mytape.timestamp[pause_point]] miliseconds."))
+		else if (!mark2)
+			if (pause_point <= mark1)
+				to_chat(user, span_notice("You can't put a mark there, you must put the second mark somewhere after the first one."))
+				return
+			mark2 = pause_point
+			to_chat(user, span_notice("You made a second mark in the tape at [mytape.timestamp[pause_point]] miliseconds."))
+		else
+			to_chat(user, span_notice("There are already two marks on this tape, erase them if you want to make more."))
+			return
+	else if(mytape && (mark1 || mark2) && istype(I, /obj/item/soap))
+		mark1 = null
+		mark2 = null
+		to_chat(user, span_notice("You erase all markings from the tape."))
+
+
+/obj/item/taperecorder/screwdriver_act(mob/living/user, obj/item/I)
+	if(open_panel)
+		to_chat(user, span_notice("You close \the [src]'s wire panel."))
+		open_panel = FALSE
+	else
+		to_chat(user, span_notice("You open \the [src]'s wire panel, giving you access to the tape inside it."))
+		open_panel = TRUE
+	return TRUE
+
+/obj/item/taperecorder/wirecutter_act(mob/user, obj/item/I)
+	if(open_panel && mytape)
+		if(mark1 && mark2)
+			var/obj/item/stack/sticky_tape = locate(/obj/item/stack/sticky_tape) in user.held_items
+			if(sticky_tape && sticky_tape.amount > 1)
+				sticky_tape.amount -= 1
+				mytape.storedinfo.Cut(mark1,mark2)
+				mytape.timestamp.Cut(mark1,mark2)
+				to_chat(user, span_notice("You cut the tape on both markers, removed the cut out tape, then glued the remaining tape pieces together, erasing a bit of the recording!"))
+			else
+				to_chat(user, span_notice("To cut out a piece of the tape you need a piece of sticky tape in your other hand!"))
+		else
+			to_chat(user, span_notice("There are either no marks on this tape or only one mark. You need to have two to know where to cut it."))
+	return TRUE
 
 
 /obj/item/taperecorder/proc/eject(mob/user)
@@ -103,6 +150,7 @@
 		stop()
 		user.put_in_hands(mytape)
 		mytape = null
+		pause_point = null
 		update_appearance()
 
 /obj/item/taperecorder/fire_act(exposed_temperature, exposed_volume)
@@ -172,6 +220,7 @@
 
 	if(mytape.used_capacity < mytape.max_capacity)
 		recording = TRUE
+		pause_point = null
 		say("Recording started.")
 		update_sound()
 		update_appearance()
@@ -235,9 +284,11 @@
 		if(!mytape)
 			break
 		if(playing == FALSE)
+			pause_point = i - 1
 			break
 		if(mytape.storedinfo.len < i)
 			say("End of recording.")
+			pause_point = null
 			break
 		say("[mytape.storedinfo[i]]", sanitize=FALSE)//We want to display this properly, don't double encode
 		if(mytape.storedinfo.len < i + 1)
@@ -250,7 +301,6 @@
 			say("Skipping [playsleepseconds] seconds of silence.")
 			playsleepseconds = 1 SECONDS
 		i++
-
 	stop()
 
 
